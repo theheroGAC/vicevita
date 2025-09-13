@@ -808,10 +808,12 @@ char* getwd(char *buffer)
 	return NULL;
 }
 
+#ifndef HAVE_CHDIR
 int chdir(const char *path)
 {
 	return 0;
 }
+#endif
 
 static int isDirectory(const char* path)
 {
@@ -825,6 +827,7 @@ static int isDirectory(const char* path)
 	return 0;
 }
 
+#ifndef HAVE_MKDIR
 int mkdir(const char* path, mode_t mode)
 {
 	int ret = sceIoMkdir(path, 0777); // Don't put mode parameter here. Give always full permissions.
@@ -838,7 +841,9 @@ int mkdir(const char* path, mode_t mode)
 
 	return 0;
 }
+#endif
 
+#ifndef HAVE_RMDIR
 int rmdir(const char *path)
 {
 	if (sceIoRemove(path) < 0)
@@ -846,6 +851,7 @@ int rmdir(const char *path)
 
 	return 0;
 }
+#endif
 
 int usleep(useconds_t usec)
 {
