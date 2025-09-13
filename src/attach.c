@@ -51,6 +51,10 @@
 #include "vice-event.h"
 #include "p64.h"
 
+#ifdef PSVITA
+#include "arch/psvita/zip_support.h"
+#endif
+
 /* #define DEBUG_ATTACH */
 
 #ifdef DEBUG_ATTACH
@@ -679,3 +683,64 @@ void file_system_event_playback(unsigned int unit, const char *filename)
         file_system_attach_disk_internal(unit, filename);
     }
 }
+
+#ifdef PSVITA
+/* ZIP archive support for PS Vita */
+int file_system_attach_disk_zip(unsigned int unit, const char *zip_path, const char *entry_name)
+{
+    char temp_file_path[1024];
+    ZipArchiveHandle* archive;
+    int result = -1;
+    
+    if (event_playback_active()) {
+        return -1;
+    }
+
+    if (network_connected()) {
+        /* ZIP files over network not supported yet */
+        return -1;
+    }
+    
+    /* Open ZIP archive */
+    archive = zip_open_archive(zip_path);
+    if (!archive) {
+        log_error(attach_log, "Could not open ZIP archive: %s", zip_path);
+        return -1;
+    }
+    
+    /* Extract the specific file to temp directory */
+    if (!zip_extract_file_to_temp_c(archive, entry_name, temp_file_path, sizeof(temp_file_path))) {
+        log_error(attach_log, "Could not extract file %s from ZIP: %s", entry_name, zip_path);
+        zip_close_archive(archive);
+        return -1;
+    }
+    
+    zip_close_archive(archive);
+    
+    /* Attach the extracted file */
+    result = file_system_attach_disk_internal(unit, temp_file_path);
+    
+    /* Note: We don't delete the temp file here as VICE might need it later.
+     * The temp files will be cleaned up when the application exits or when
+     * zip_cleanup_temp_files() is called. */
+    
+    return result;
+}
+
+/* Auto-detect and attach disk/tape from ZIP if it contains supported files */
+int file_system_attach_disk_auto_zip(unsigned int unit, const char *zip_path)
+{
+    char temp_rom_path[1024];
+    const char* supported_extensions[] = {
+        ".d64", ".d71", ".d81", ".x64", ".g64", 
+        ".t64", ".tap", ".prg", ".p00", NULL
+    };
+    
+    if (!zip_extract_rom_to_temp_c(zip_path, supported_extensions, temp_rom_path, sizeof(temp_rom_path))) {
+        log_error(attach_log, "No supported disk/tape files found in ZIP: %s", zip_path);
+        return -1;
+    }
+    
+    return file_system_attach_disk_internal(unit, temp_rom_path);
+}
+#endif

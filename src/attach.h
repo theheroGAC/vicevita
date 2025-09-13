@@ -52,4 +52,10 @@ extern int file_system_bam_get_disk_id(unsigned int unit, uint8_t *id);
 extern int file_system_bam_set_disk_id(unsigned int unit, uint8_t *id);
 extern void file_system_event_playback(unsigned int unit, const char *filename);
 
+#ifdef PSVITA
+/* ZIP archive support functions */
+extern int file_system_attach_disk_zip(unsigned int unit, const char *zip_path, const char *entry_name);
+extern int file_system_attach_disk_auto_zip(unsigned int unit, const char *zip_path);
+#endif
+
 #endif

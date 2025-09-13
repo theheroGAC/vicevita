@@ -138,7 +138,7 @@ int ioutil_errno(unsigned int check)
     return 0;
 }
 
-#ifndef HAVE_GETCWD
+#if 0  // Commented out to avoid linker conflicts with Vita SDK
 char *getcwd (char *buf, size_t len)
 {
     char ourbuf[PATH_MAX];
