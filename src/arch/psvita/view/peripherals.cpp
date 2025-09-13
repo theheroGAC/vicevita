@@ -21,14 +21,16 @@
 */
 
 #include "peripherals.h"
-#include "controller.h"
 #include "view.h"
 #include "file_explorer.h"
-#include "texter.h"
-#include "ini_parser.h"
-#include "guitools.h"
+#include "../controller/controller.h"
+#include "../zip_support.h"
 #include "resources.h"
 #include "app_defs.h"
+#include "debug_psv.h"
+#include "guitools.h"
+#include "texter.h"
+#include "ini_parser.h"
 #include "debug_psv.h"
 #include <cstring>
 #include <vita2d.h>
@@ -603,6 +605,18 @@ string Peripherals::showFileBrowser()
 	string entry_dir = m_fileExp->getDir();
 	selection = m_fileExp->doModal();
 	string exit_dir = m_fileExp->getDir();
+
+	// Check if a file inside ZIP was selected
+	if (!selection.empty() && m_fileExp->isSelectedFromZip()) {
+		// For files selected from ZIP, we need to handle them specially
+		// The selection is the ZIP file path, but we need to extract the specific entry
+		std::string zip_path = m_fileExp->getZipPath();
+		std::string zip_entry = m_fileExp->getZipEntry();
+		
+		// Create a unique identifier for the ZIP file + entry combination
+		// This will be handled by the controller's attachImage function
+		selection = zip_path + "|" + zip_entry;
+	}
 
 	// Save directory if it has changed.
 	if (exit_dir != entry_dir)

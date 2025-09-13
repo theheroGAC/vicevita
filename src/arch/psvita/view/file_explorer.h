@@ -26,6 +26,7 @@
 #include "navigator.h"
 #include "scroll_bar.h"
 #include "iRenderable.h"
+#include "../zip_support.h"
 #include <vector>
 #include <string>
 #include <string.h> // for strstr
@@ -49,6 +50,9 @@ struct DirEntry
 	string name;
 	string path;
 	bool isFile;
+	bool isInZip;        // True if this entry is inside a ZIP archive
+	string zipPath;      // Path to the ZIP file (if isInZip is true)
+	string zipEntry;     // Entry name inside the ZIP (if isInZip is true)
 };
 
 class vita2d_texture;
@@ -67,7 +71,10 @@ private:
 	ScrollBar			m_scrollBar;
 	vita2d_texture*		m_folder_icon;
 	vita2d_texture*		m_file_icon;
+	vita2d_texture*		m_zip_icon;
 	bool				m_fileSelected;
+	ZipArchiveHandle*	m_currentZip;		// Current open ZIP archive
+	string				m_currentZipPath;	// Path inside current ZIP
 
 	void				show();
 	void				render();
@@ -76,6 +83,11 @@ private:
 	void				setFilter(const char** filter);
 	void				strToUpperCase(string& str);
 	void				addParentDirectory();
+	bool				isInZipMode();
+	bool				openZipArchive(const char* zipPath);
+	void				closeZipArchive();
+	bool				readZipContent(const char* zipPath, const char* subPath = "");
+	bool				handleZipNavigation(const DirEntry& entry);
 	
 	// Navigator interface implementations
 	bool				isExit(int buttons); 
@@ -107,6 +119,9 @@ public:
 	string				getFileName();
 	string				getDir();
 	string				getDisplayFitString(const char* str, int limit, float font_size = 1.0);
+	bool				isSelectedFromZip();
+	string				getZipPath();
+	string				getZipEntry();
 	int					getHighlightIndex();
 	int					getBorderTopIndex();
 	float				getScrollBarPosY();

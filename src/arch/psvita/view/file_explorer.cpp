@@ -27,13 +27,15 @@
 #include "resources.h"
 #include "app_defs.h"
 #include "debug_psv.h"
+#include "../zip_support.h"
 
 #include <algorithm> // std::sort
 #include <vita2d.h>
 #include <psp2/display.h>
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h> 
-#include <psp2/io/fcntl.h> 
+#include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
 
 
 #define MAX_ENTRIES 18 // Max rows on the screen
@@ -63,7 +65,10 @@ FileExplorer::FileExplorer()
 {
 	m_file_icon = NULL;
 	m_folder_icon = NULL;
+	m_zip_icon = NULL;
 	m_filter = NULL;
+	m_currentZip = NULL;
+	m_currentZipPath = "";
 }
 
 FileExplorer::~FileExplorer()
@@ -72,6 +77,8 @@ FileExplorer::~FileExplorer()
 		vita2d_free_texture(m_file_icon);
 	if (m_folder_icon)
 		vita2d_free_texture(m_folder_icon);
+	if (m_zip_icon)
+		vita2d_free_texture(m_zip_icon);
 	if (m_filter){
 		char** p = m_filter;
 		while (*p){
@@ -80,6 +87,7 @@ FileExplorer::~FileExplorer()
 		}
 		delete[] m_filter;
 	}
+	closeZipArchive();
 }
 
 void FileExplorer::init(const char* path, int hlIndex, int btIndex, float sbPosY, const char** filter)
@@ -90,6 +98,7 @@ void FileExplorer::init(const char* path, int hlIndex, int btIndex, float sbPosY
 	m_borderBottom = MAX_ENTRIES-1;
 	m_file_icon = vita2d_load_PNG_buffer(img_file_icon);
 	m_folder_icon = vita2d_load_PNG_buffer(img_folder_icon);
+	m_zip_icon = vita2d_load_PNG_buffer(img_file_icon); // Use file icon for ZIP for now
 	
 	setFilter(filter);
 	readDirContent(path);
@@ -127,12 +136,20 @@ void FileExplorer::buttonReleased(int button)
 		DirEntry entry = select();
 
 		if (entry.isFile){
+			// Regular file selection (including ZIP files for direct loading)
 			m_fileSelected = true;
 			Navigator::m_running = false;
 			return;
 		}
-				
-		changeDir(entry.path.c_str());
+		
+		// Handle ZIP navigation or directory change
+		if (entry.isInZip) {
+			if (!handleZipNavigation(entry)) {
+				return; // Error handling ZIP navigation
+			}
+		} else {
+			changeDir(entry.path.c_str());
+		}
 	}
 }
 
@@ -206,6 +223,21 @@ string FileExplorer::getDir()
 	return m_path;
 }
 
+bool FileExplorer::isSelectedFromZip()
+{
+	return m_list[m_highlight].isInZip;
+}
+
+string FileExplorer::getZipPath()
+{
+	return m_list[m_highlight].zipPath;
+}
+
+string FileExplorer::getZipEntry()
+{
+	return m_list[m_highlight].zipEntry;
+}
+
 int	FileExplorer::getHighlightIndex()
 {
 	return m_highlight;
@@ -239,8 +271,11 @@ void FileExplorer::render()
 	int text_color = YELLOW;
 	vita2d_texture* entry_icon;
 	
-	// Path
+		// Path
 	txtr_draw_text(0, 20, C64_BLUE, m_path.c_str());
+	if (isInZipMode()) {
+		txtr_draw_text(0, 40, LIGHT_GREY, (std::string("ZIP:") + m_currentZipPath).c_str());
+	}
 
 	// Top seperation line
 	vita2d_draw_line(0, 30, 960, 30, YELLOW_TRANSPARENT);
@@ -251,7 +286,17 @@ void FileExplorer::render()
 	// Files
 	for (int i=start; i<=end; ++i){
 		text_color = YELLOW;
-		entry_icon = (m_list[i].isFile)? m_file_icon: m_folder_icon;
+		
+		// Choose appropriate icon
+		if (m_list[i].isFile) {
+			if (zip_is_archive(m_list[i].name.c_str()) && !m_list[i].isInZip) {
+				entry_icon = m_zip_icon;
+			} else {
+				entry_icon = m_file_icon;
+			}
+		} else {
+			entry_icon = m_folder_icon;
+		}
 
 		vita2d_draw_texture(entry_icon, 0, y-17); 
 
@@ -305,11 +350,17 @@ int FileExplorer::readDirContent(const char* path)
 		entry.name = "ux0:";
 		entry.path = "ux0:";
 		entry.isFile = false;
+		entry.isInZip = false;
+		entry.zipPath = "";
+		entry.zipEntry = "";
 		m_list.push_back(entry);
 
 		entry.name = "uma0:";
 		entry.path = "uma0:";
 		entry.isFile = false;
+		entry.isInZip = false;
+		entry.zipPath = "";
+		entry.zipEntry = "";
 		m_list.push_back(entry);
 
 		return RET_OK;
@@ -341,6 +392,9 @@ int FileExplorer::readDirContent(const char* path)
 
 		entry.name = dir.d_name;
 		entry.path = m_path + dir.d_name;
+		entry.isInZip = false;
+		entry.zipPath = "";
+		entry.zipEntry = "";
 
 		if (dir.d_stat.st_mode & SCE_S_IFREG){ // Is a file?
 			if (!isFileAccepted(entry.name.c_str())) continue;
@@ -373,12 +427,18 @@ void FileExplorer::addParentDirectory()
  
 		entry.path = tmp;
 		entry.isFile = false;
+		entry.isInZip = false;
+		entry.zipPath = "";
+		entry.zipEntry = "";
 		m_list.push_back(entry);
 	}else{
 		if (m_path != ""){
 			entry.name = "..";
 			entry.path = "";
 			entry.isFile = false;
+			entry.isInZip = false;
+			entry.zipPath = "";
+			entry.zipEntry = "";
 			m_list.push_back(entry);
 		}
 	}
@@ -663,4 +723,120 @@ string FileExplorer::getDisplayFitString(const char* str, int limit, float font_
 	ret.append("...");
 
 	return ret;
+}
+
+// ZIP support functions
+bool FileExplorer::isInZipMode()
+{
+	return m_currentZip != NULL;
+}
+
+bool FileExplorer::openZipArchive(const char* zipPath)
+{
+	closeZipArchive(); // Close any existing archive
+	
+	m_currentZip = zip_open_archive(zipPath);
+	if (!m_currentZip) {
+		return false;
+	}
+	
+	m_currentZipPath = zipPath;
+	return true;
+}
+
+void FileExplorer::closeZipArchive()
+{
+	if (m_currentZip) {
+		zip_close_archive(m_currentZip);
+		m_currentZip = NULL;
+		m_currentZipPath = "";
+	}
+}
+
+bool FileExplorer::readZipContent(const char* zipPath, const char* subPath)
+{
+	if (!openZipArchive(zipPath)) {
+		return false;
+	}
+	
+	// Clear current list
+	m_list.clear();
+	m_path = zipPath;
+	
+	// TODO: For now, just add a placeholder entry to allow compilation
+	// This needs proper implementation of ZIP content listing
+	if (!zip_list_contents(m_currentZip, nullptr)) {
+		closeZipArchive();
+		return false;
+	}
+	
+	// Add a placeholder ZIP file entry for now
+	DirEntry entry;
+	entry.name = "ZIP_CONTENT_PLACEHOLDER";
+	entry.path = zipPath;
+	entry.isFile = true;
+	entry.isInZip = true;
+	entry.zipPath = zipPath;
+	entry.zipEntry = "placeholder.rom";
+	
+	m_list.push_back(entry);
+	
+	// Add parent directory navigation - simplified for now
+	// Add .. to exit ZIP
+	DirEntry exitEntry;
+	exitEntry.name = ".. (Exit ZIP)";
+	exitEntry.path = "";
+	exitEntry.isFile = false;
+	exitEntry.isInZip = false;
+	exitEntry.zipPath = "";
+	exitEntry.zipEntry = "";
+	m_list.insert(m_list.begin(), exitEntry);
+	
+	// Reset navigation state
+	m_highlight = 0;
+	m_borderTop = 0;
+	m_borderBottom = MAX_ENTRIES - 1;
+	m_scrollBar.setListSize(m_list.size(), MAX_ENTRIES);
+	
+	return true;
+}
+
+bool FileExplorer::handleZipNavigation(const DirEntry& entry)
+{
+	if (!entry.isInZip) {
+		return false; // Not a ZIP entry
+	}
+	
+	if (entry.isFile) {
+		// File selected from ZIP - this will be handled by the caller
+		m_fileSelected = true;
+		Navigator::m_running = false;
+		return true;
+	}
+	
+	// Directory navigation within ZIP
+	if (entry.name == ".." || entry.name == ".. (Exit ZIP)") {
+		if (entry.zipEntry.empty()) {
+			// Exit ZIP mode
+			closeZipArchive();
+			// Go back to regular directory listing
+			std::string zipDir = entry.zipPath;
+			size_t lastSlash = zipDir.find_last_of('/');
+			if (lastSlash != std::string::npos) {
+				zipDir = zipDir.substr(0, lastSlash + 1);
+			} else {
+				zipDir = "";
+			}
+			readDirContent(zipDir.c_str());
+			addParentDirectory();
+			sortDirContent();
+			m_scrollBar.setListSize(m_list.size(), MAX_ENTRIES);
+		} else {
+			// Navigate to parent directory within ZIP
+			readZipContent(entry.zipPath.c_str(), entry.zipEntry.c_str());
+		}
+		return true;
+	}
+	
+	return false;
 }
