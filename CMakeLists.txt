@@ -38,17 +38,21 @@ if (BUILD_TYPE MATCHES Release)
    # Build release version with -O3 flag. It will optimize the code and give good performance boost. 
    message("Build mode is RELEASE")
    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu11 -O3")
-   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -Wno-narrowing")
    add_compile_options(-O3)
 else ()
    # Build with -g flag to enable better debugging information.
    message("Build mode is DEBUG")
    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=gnu11")
-   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++11")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -std=c++11 -Wno-narrowing")
    add_definitions(-DPSV_DEBUG_CODE)
 endif (BUILD_TYPE MATCHES Release)
 
 add_definitions(-DPSVITA)
+add_definitions(-DHAVE_GETCWD)
+add_definitions(-DHAVE_MKDIR) 
+add_definitions(-DHAVE_RMDIR)
+add_definitions(-DHAVE_CHDIR)
 
 
 # Add any additional include paths here
@@ -171,6 +175,7 @@ add_executable(${SHORT_NAME}
     	src/arch/psvita/video_psv.c
 	src/arch/psvita/vsidui.c
 	src/arch/psvita/vsyncarch.c
+	src/arch/psvita/zip_support.cpp
 	src/arch/psvita/view/about.cpp
 	src/arch/psvita/view/control_pad.cpp
 	src/arch/psvita/view/controls.cpp
@@ -194,7 +199,7 @@ add_executable(${SHORT_NAME}
 	src/arch/psvita/controller/controller.cpp
 	src/arch/psvita/minizip/ioapi.c
 	src/arch/psvita/minizip/unzip.c
-	#src/arch/psvita/minizip/zip.c
+	src/arch/psvita/minizip/zip.c
 	src/c64/c64-cmdline-options.c
 	src/c64/c64-memory-hacks.c
 	src/c64/c64-resources.c
@@ -686,6 +691,8 @@ target_link_libraries(${SHORT_NAME}
   SceCtrl_stub
   SceTouch_stub
   SceAudio_stub
+  SceAudioIn_stub
+  SceMotion_stub
   SceSysmodule_stub
   SceGxm_stub
   SceCommonDialog_stub
@@ -696,6 +703,7 @@ target_link_libraries(${SHORT_NAME}
   SceAppMgr_stub
   freetype 
   png
+  bz2
   z
   m
 )
