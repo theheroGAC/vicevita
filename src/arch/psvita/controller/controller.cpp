@@ -22,7 +22,8 @@
 */
 
 #include "controller.h"
-#include "control_pad.h"
+#include "view/view.h"
+#include "../zip_support.h"
 #include "file_explorer.h"
 #include "peripherals.h"
 #include "extractor.h"
@@ -1102,8 +1103,16 @@ int Controller::attachDriveImage(int drive, const char* image)
 	if(!strcmp(image, "Empty"))
 		return -1;
 
-	if (file_system_attach_disk(drive, image) < 0)
-		return -1;
+	// Check if it's a ZIP file
+	if (zip_is_archive(image)) {
+		// Try to auto-detect and attach a supported file from the ZIP
+		if (file_system_attach_disk_auto_zip(drive, image) < 0)
+			return -1;
+	} else {
+		// Regular file attachment
+		if (file_system_attach_disk(drive, image) < 0)
+			return -1;
+	}
 
 	// Notify disk presence to statusbar.
 	gs_view->setDriveDiskPresence(drive-8, 1);
@@ -1627,8 +1636,21 @@ int Controller::getViewport(ViewPort* vp, bool borders)
 int Controller::attachImage(int device, const char* file)
 {
 	int drive_id = getCurrentDriveId();
-
-	const char* image_file = Extractor::getInst()->extract(file, drive_id);
+	const char* image_file = nullptr;
+	
+	// Check if this is a ZIP file (direct ZIP file loading)
+	if (zip_is_archive(file)) {
+		// Extract ROM automatically from ZIP
+		char temp_path[512];
+		if (zip_extract_rom_to_temp_c(file, nullptr, temp_path, sizeof(temp_path))) {
+			image_file = temp_path;
+		} else {
+			return -1; // Failed to extract ROM from ZIP
+		}
+	} else {
+		// Regular file extraction
+		image_file = Extractor::getInst()->extract(file, drive_id);
+	}
 
 	if (!image_file)
 		return -1;
